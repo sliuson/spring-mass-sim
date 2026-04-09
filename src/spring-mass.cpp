@@ -9,7 +9,7 @@ SDL_Renderer* renderer = nullptr;
 class Spring;
 class Mass;
 float TIMESTEP = 1.0f/120.0f;
-
+float dampening = 0.99f;
 struct Vec {
     float x,y;
     Vec(float x, float y){
@@ -37,9 +37,11 @@ class Mass {
     Vec pos;
     Vec lastPos;
     Vec accel;
+
+    Vec vel;
     float m;
 
-    Mass(Vec pos, float m) : pos(pos) ,m(m),lastPos(pos),accel(0,0){      
+    Mass(Vec pos, float m) : pos(pos) ,m(m),lastPos(pos),accel(0,0),vel(0,0){      
       
     }
 
@@ -51,12 +53,26 @@ class Mass {
     void applyForce(Vec force){
         accel = Vec::add(accel,Vec::divide(force,m));
     }
+
+     void halfIncrementVelocity(){
+        vel = Vec::add(vel,Vec::multiply(accel,0.5f*TIMESTEP));
+    }
     void movement(){
-        //verlet integration
+        
+        //velocity verlet integration
+        
+        vel = Vec::add(vel,Vec::multiply(accel,0.5f*TIMESTEP));
+
+        vel = Vec::multiply(vel,dampening);
+        pos = Vec::add(pos,Vec::multiply(vel,TIMESTEP));
+        accel = Vec(0,0);
+
+     /* //  basic verlet
         Vec tempCurrentPos = pos;
         pos = Vec::add(Vec::subtract(Vec::multiply(pos,2), lastPos), Vec::multiply(accel,TIMESTEP*TIMESTEP));
         lastPos = tempCurrentPos;
         accel = Vec(0,0);
+        */
     }
     
 
@@ -111,21 +127,21 @@ bool massesAreConnected(Mass* m1,Mass* m2){
 }
 void connectMasses(Mass* m1,Mass* m2){
     float displacement = Vec::getMagnitude(Vec::subtract(m1->pos,m2->pos));
-    springs.emplace_back(m1,m2,100,displacement);
+    springs.emplace_back(m1,m2,10000,displacement);
 }
 
 
 
 void initializeSystem() {
-    int rows = 20;
-    int cols = 40;
-    int spacing = 17;
+    int rows = 50;
+    int cols = 50;
+    int spacing = 9;
     int m = 10;
     int startTranslation = 100;
     masses.reserve(rows*cols);
     for (int row = 0; row < rows; row ++){
         for (int col = 0; col < cols; col++){
-            masses.emplace_back(Vec(startTranslation+col*spacing,startTranslation+row*spacing),1);
+            masses.emplace_back(Vec(startTranslation+col*spacing,startTranslation+row*spacing),m);
             //when created, connect up,left,upleft
             //exceptions: on left, on top, on topleft
             int index = (row*cols) + col;
@@ -216,9 +232,13 @@ Vec calculateMouseForce(Mass* m1){
     SDL_GetMouseState(&mouseX,&mouseY);
     Vec mousePos(mouseX,mouseY);
     Vec r = Vec::subtract(m1->pos,mousePos);
-    float mouseConstant = 100000;
-    float forceMag = mouseConstant* m1->m *1/(Vec::getMagnitude(r)*Vec::getMagnitude(r));
-    Vec forceDirection = Vec::divide(r,Vec::getMagnitude(r));
+    float dist = Vec::getMagnitude(r);
+    if (dist < 1 || dist > 100){
+        return Vec(0,0);
+    }
+    float mouseConstant = 400000;
+    float forceMag = mouseConstant*1/(dist);
+    Vec forceDirection = Vec::divide(r,dist);
     Vec force = Vec::multiply(forceDirection,forceMag);
     return force;
 }
@@ -238,14 +258,23 @@ void mainloop(){
     accum+=elapsed;
     //every time we accumulate enough time, we update physics, keeping our timesteps constant
     while (accum >= TIMESTEP){
+        //half increment velocity with current acceleration
+        for (int i = 0; i < masses.size(); i ++){
+            masses[i].halfIncrementVelocity();
+            masses[i].movement();
+        }
+        //change acceleration
         for (int i = 0; i < springs.size(); i++){
-        //adds to masses' acceleration vectors;
-        springs[i].applyForce();
+            springs[i].applyForce();
         }
 
         for (int i = 0; i < masses.size(); i ++){
             masses[i].applyForce(calculateMouseForce(&masses[i]));
-            masses[i].movement();
+        }
+
+        //half increment velocity with future acceleration
+        for (int i = 0; i < masses.size(); i ++){
+            masses[i].halfIncrementVelocity();
         }
         accum -= TIMESTEP;
     }
