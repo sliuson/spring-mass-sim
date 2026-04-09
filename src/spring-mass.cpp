@@ -47,24 +47,29 @@ class Mass {
 
     void display(){
         SDL_SetRenderDrawColor(renderer, 200,200,200,255);
-        SDL_FRect rect = {this->pos.x-2.5f,this->pos.y-2.5f,5,5};
+        SDL_FRect rect = {this->pos.x,this->pos.y,1,1};
         SDL_RenderFillRect(renderer, &rect);
     }
     void applyForce(Vec force){
         accel = Vec::add(accel,Vec::divide(force,m));
     }
 
+
+    //velocity verlet:
+    //1) x_(n+1) = x_n + v_n * dt + 0.5 * a_n * dt^2
+    //2) v_(n+0.5) = v_n + 0.5*a_n*dt
+    //3) a(t+dt) = f(x_n+1)
+    //4) v(t+1)  = v_(n+0.5) + 0.5*a_(n+1)*dt
      void halfIncrementVelocity(){
         vel = Vec::add(vel,Vec::multiply(accel,0.5f*TIMESTEP));
     }
     void movement(){
-        
-        //velocity verlet integration
-        
-        vel = Vec::add(vel,Vec::multiply(accel,0.5f*TIMESTEP));
-
         vel = Vec::multiply(vel,dampening);
-        pos = Vec::add(pos,Vec::multiply(vel,TIMESTEP));
+        //1)apply velocity and acceleration          
+        pos = Vec::add(Vec::add(pos,Vec::multiply(vel,TIMESTEP)),Vec::multiply(accel,TIMESTEP*TIMESTEP));
+        //2) calculate velocity half step forward
+        vel = Vec::add(vel,Vec::multiply(accel,0.5f*TIMESTEP));
+        //3) reset acceleration to prepare to calculate new acceleration
         accel = Vec(0,0);
 
      /* //  basic verlet
@@ -258,12 +263,13 @@ void mainloop(){
     accum+=elapsed;
     //every time we accumulate enough time, we update physics, keeping our timesteps constant
     while (accum >= TIMESTEP){
-        //half increment velocity with current acceleration
+        //1) apply vel and accel
+        //2) half update vel
         for (int i = 0; i < masses.size(); i ++){
-            masses[i].halfIncrementVelocity();
             masses[i].movement();
         }
-        //change acceleration
+
+        //3) calculate new acceleration
         for (int i = 0; i < springs.size(); i++){
             springs[i].applyForce();
         }
@@ -272,7 +278,7 @@ void mainloop(){
             masses[i].applyForce(calculateMouseForce(&masses[i]));
         }
 
-        //half increment velocity with future acceleration
+        //4) half increment velocity with new acceleration
         for (int i = 0; i < masses.size(); i ++){
             masses[i].halfIncrementVelocity();
         }
