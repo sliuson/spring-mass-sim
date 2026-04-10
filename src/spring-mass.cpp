@@ -1,7 +1,7 @@
 #include <SDL3/SDL.h>
 #include <emscripten.h>
 #include <vector>
-#include <random>
+#include <SDL3/SDL_video.h>
 
 SDL_Window* window = nullptr;
 SDL_Renderer* renderer = nullptr;
@@ -35,13 +35,12 @@ struct Vec {
 class Mass {
     public:
     Vec pos;
-    Vec lastPos;
     Vec accel;
 
     Vec vel;
     float m;
 
-    Mass(Vec pos, float m) : pos(pos) ,m(m),lastPos(pos),accel(0,0),vel(0,0){      
+    Mass(Vec pos, float m) : pos(pos) ,m(m),accel(0,0),vel(0,0){      
       
     }
 
@@ -49,6 +48,27 @@ class Mass {
         SDL_SetRenderDrawColor(renderer, 200,200,200,255);
         SDL_FRect rect = {this->pos.x,this->pos.y,1,1};
         SDL_RenderFillRect(renderer, &rect);
+    }
+    void wallCollision(){
+        int width;
+        int height;
+        SDL_GetWindowSize(window,&width,&height);
+        if(pos.x > width){
+            pos.x = width;
+            vel.x = -0.02*vel.x;
+        }
+        if(pos.y > height){
+            pos.y = height;
+            vel.y = -0.02*vel.y;
+        }
+        if(pos.x <0){
+            pos.x = 0;
+            vel.x =-0.02*vel.x;
+        }
+        if(pos.y < 0){
+            pos.y = 0;
+            vel.y = -0.02*vel.y;
+        }
     }
     void applyForce(Vec force){
         accel = Vec::add(accel,Vec::divide(force,m));
@@ -67,6 +87,9 @@ class Mass {
         vel = Vec::multiply(vel,dampening);
         //1)apply velocity and acceleration          
         pos = Vec::add(Vec::add(pos,Vec::multiply(vel,TIMESTEP)),Vec::multiply(accel,TIMESTEP*TIMESTEP));
+
+            //wall collison
+        wallCollision();
         //2) calculate velocity half step forward
         vel = Vec::add(vel,Vec::multiply(accel,0.5f*TIMESTEP));
         //3) reset acceleration to prepare to calculate new acceleration
@@ -94,10 +117,12 @@ class Spring {
     void applyForce(){
         Vec displacement = Vec::subtract(m2->pos,m1->pos);
         float currentLength = Vec::getMagnitude(displacement);
+        if(currentLength < 0.00001f){
+            return;
+        }
         //negative extension means compression
         float extension = currentLength - equilibriumLength;
         float tension = k * extension;
-
         //get unit direction from m1 to m2
         Vec unitDirection = Vec::divide(displacement, Vec::getMagnitude(displacement));
         Vec forceOn1 = Vec::multiply(unitDirection, tension);
@@ -109,6 +134,7 @@ class Spring {
     }
     
     void display(){
+
         SDL_SetRenderDrawColor(renderer, 255,255,255,255);
         
         SDL_RenderLine(renderer, m1->pos.x,m1->pos.y,m2->pos.x,m2->pos.y);
@@ -142,11 +168,22 @@ void initializeSystem() {
     int cols = 50;
     int spacing = 9;
     int m = 10;
-    int startTranslation = 100;
+    int margin = 100;
+    int width;
+    int height;
+    SDL_GetWindowSize(window,&width,&height);
+    if(cols*spacing +2*margin>= width){
+        cols = static_cast<int>((width - 2*margin)/spacing);
+    }
+    if(rows*spacing +2*margin>= height){
+        rows = static_cast<int>((height - 2*margin)/spacing);
+    }
+    
+
     masses.reserve(rows*cols);
     for (int row = 0; row < rows; row ++){
         for (int col = 0; col < cols; col++){
-            masses.emplace_back(Vec(startTranslation+col*spacing,startTranslation+row*spacing),m);
+            masses.emplace_back(Vec(margin+col*spacing,margin+row*spacing),m);
             //when created, connect up,left,upleft
             //exceptions: on left, on top, on topleft
             int index = (row*cols) + col;
@@ -199,7 +236,6 @@ void initializeSystem() {
     //pull bottom right a little to give the system some energy
     masses.back().pos.x+=2;
     masses.back().pos.y+=2;
-    masses.back().lastPos = masses.back().pos;
     /*
     0,       1,     2,      3,   ...,   cols-1
     cols  cols+1  cols+2  cols+3, ...,  2cols-1
@@ -304,7 +340,7 @@ void mainloop(){
 int main() {
     SDL_Init(SDL_INIT_VIDEO);
     SDL_CreateWindowAndRenderer("sketch",1000,800,0,&window,&renderer);
-    
+    SDL_SetWindowFillDocument(window, true);
     initializeSystem();
    
     emscripten_set_main_loop(mainloop,0,1);
